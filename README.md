@@ -1,14 +1,18 @@
-Create Shell: kubectl apply -f https://k8smastery.com/shpod.yaml
-Attach: kubectl attach --namespace=shpod -ti shpod
-Delete at end of cource kubectl delete -f https://k8smastery.com/shpod.yaml
 
+# Inroduction
+[Kubernetes Mastery](https://www.udemy.com/course/kubernetesmastery)
+* Create Shell: `kubectl apply -f https://k8smastery.com/shpod.yaml`
+* Attach: `kubectl attach --namespace=shpod -ti shpod`
+* Delete at end of course: `kubectl delete -f https://k8smastery.com/shpod.yaml`
+
+```
 kubectl get nodes -o json | 
     jq ".items[] | {name:.metadata.name} + .status.capacity"
+```
 
-
-kubectl describe node/<node>
-kubectl describe node <node>
-kubectl describe node/docker-desktop
+* kubectl describe node/<node>
+* kubectl describe node <node>
+* `kubectl describe node/docker-desktop`
 
 # Introspection vs Documentation
 Exploring Resource Types
@@ -77,3 +81,6 @@ declarative, giving a state, will try to match state
 ## Better CLI Logs with Stern
 * `brew install stern`
 * `stern --tail 1 --timestamps pingpong`
+
+# Section 8: K8s Services and Visualizing Deployments
+![Deployment Visualisation]("images/Deployment Visual.png")
