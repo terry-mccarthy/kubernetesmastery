@@ -83,4 +83,100 @@ declarative, giving a state, will try to match state
 * `stern --tail 1 --timestamps pingpong`
 
 # Section 8: K8s Services and Visualizing Deployments
-![Deployment Visualisation]("images/Deployment Visual.png")
+![Deployment Visualisation2](images\deployment-visual.png)
+
+
+# Section 10: Networking Model
+## Assignment: Deployments with Services
+1. Create a deployment called littletomcat using the tomcat image.
+    * `kubectl create deployment littletomcat --image tomcat`
+
+1. What command will help you get the IP address of that Tomcat server?
+   * `kubectl get po -l app=littletomcat -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'`
+
+1. What steps would you take to ping it from another container? (Use the shpod environment if necessary)
+
+   * Create Shell: `kubectl apply -f https://k8smastery.com/shpod.yaml`
+   * Attach: `kubectl attach --namespace=shpod -ti shpod`
+   * ping \<ip>
+
+1. What command would delete the running pod inside that deployment?
+   * `kubectl delete pod littletomcat-7b6c88c67d-5rmdt --now`
+
+1. What happens if we delete the pod that holds Tomcat, while the ping is running?
+
+   * `ping will fail`
+   * when new pod comes up it will have a new IP
+
+1. What command can give our Tomcat server a stable DNS name and IP address? <br>
+(An address that doesn't change when something bad happens to the container)
+   ```
+   kubectl expose deployment littletomcat --port 8080
+   ```
+
+1. What commands would you run to curl Tomcat with that DNS address?<br>
+(Use the shpod environment if necessary)
+
+   * Attach: kubectl attach --namespace=shpod -ti shpod
+   * curl http://littletomcat.default:8080
+
+1. If we delete the pod that holds Tomcat, does the IP address still work? How could we test that?
+
+   * if you use the ClusterIP from within the cluster (shpod)
+   * `ClusterIP=$(kubectl get services/littletomcat -o go-template='{{(.spec.clusterIP)}}')`
+   * ClusterIP was not pingable?? `10.100.x.x`. Refer [StackOverflow](https://stackoverflow.com/questions/35742070/cannot-ping-clusterip-from-inside-the-pod-and-dns-is-not-working-for-external-do)
+   * `ip route get <ClusterIP>` (returns 10.1.x.x on the same range as the pods).
+   * this IP is pingable, and when killing the pod it continues to be reachable
+
+
+# Section 12: Walking through app deployments
+[httping ](https://github.com/BretFisher/httping-docker_)
+
+1. What deployment commands did you use to create the pods?
+   * `kubectl create deploy web --image bretfisher/wordsmith-web`
+   * `kubectl create deploy words --image bretfisher/wordsmith-words`
+   * `kubectl create deploy db --image bretfisher/wordsmith-db`
+
+1. What service commands did you use to make the pods available on a friendly DNS name?
+   * `kubectl expose deploy/words --port=8080`
+   * `kubectl expose deploy/db --port=5432`
+   * `kubectl expose deploy/web --type=NodePort --port=80`
+
+1. If we add more wordsmith-words API pods, then when the browser is refreshed, you'll see different words. What is the command to scale that deployment up to 5 pods? Test it to ensure a browser refresh shows different words.
+
+   * `kubectl scale deploy/words --replicas=5`
+
+
+# Section 13: Shifting from CLI to YAML
+`kubectl apply -f https://k8smastery.com/dockercoins.yaml`
+
+## Running an (insecure) dasboard
+`kubectl apply -f https://k8smastery.com/insecure-dashboard.yaml`
+* needed to update ui image `image: kubernetesui/dashboard:v2.5.1` to be compatible with kubenetes version: v1.22.5
+```
+Warning: spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead
+deployment.apps/kubernetes-dashboard created
+Warning: spec.template.metadata.annotations[seccomp.security.alpha.kubernetes.io/pod]: deprecated since v1.19; use the "seccompProfile" field instead
+```
+`kubectl get svc dashboard`
+
+# Section `4: Daemon sets and Lebel basics
+* daemons guaruntee runs on every node (eg for monitoring)
+* can be controlled more by lables and selectors 
+
+## Creating yaml for our daemon set
+* `kubectl get deploy/rng -o yaml > rng.yaml`
+* `kubectl apply -f rng.yaml`
+```
+error: error validating "rng.yaml": error validating data: [ValidationError(DaemonSet.spec): unknown field "progressDeadlineSeconds" in io.k8s.api.apps.v1.DaemonSetSpec, ValidationError(DaemonSet.spec): unknown field "replicas" in io.k8s.api.apps.v1.DaemonSetSpec, ValidationError(DaemonSet.spec): unknown field "strategy" in io.k8s.api.apps.v1.DaemonSetSpec, ValidationError(DaemonSet.status): unknown field "availableReplicas" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status.conditions[0]): unknown field "lastUpdateTime" in io.k8s.api.apps.v1.DaemonSetCondition, ValidationError(DaemonSet.status.conditions[1]): unknown field "lastUpdateTime" in io.k8s.api.apps.v1.DaemonSetCondition, ValidationError(DaemonSet.status): unknown field "readyReplicas" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): unknown field "replicas" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): unknown field "updatedReplicas" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): missing required field "currentNumberScheduled" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): missing required field "numberMisscheduled" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): missing required field "desiredNumberScheduled" in io.k8s.api.apps.v1.DaemonSetStatus, ValidationError(DaemonSet.status): missing required field "numberReady" in io.k8s.api.apps.v1.DaemonSetStatus]; if you choose to ignore these errors, turn validation off with --validate=false
+```
+* `kubectl apply -f rng.yaml --validate=false`
+* this works and creates additional pod (same name is ok for different types)
+
+## Selectors
+Are the glue for connecting resources to each other. How it finds the pods it will send connections to (pool of pods to round robin connections to)
+`kubectl describe svc rng`
+
+`kubectl get pods -l app=rng`
+`kubectl get pods --selector app=rng`
+
