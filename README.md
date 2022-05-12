@@ -269,3 +269,241 @@ What commands did you use to perform the following?
    * apache: `It works!`
 
 (It should now yield responses from both Apache and NGINX.)
+
+# Section 16: All about YAML
+Each manifest needs four parts:
+```
+apiVersion: # find with kubectl api-versions
+kind:       # find with kubectl api-resources
+metadata:
+spec:       # find with kubectl describe pod
+```
+
+* `-o yaml --dry-run` will give you example yaml
+* `kubectl explain <kind>.spec`
+
+* yamllint.com
+* codebeautify.org/yaml-validator
+* kubeyaml.com
+* pip install yamllint
+* kubeval - `github.com/instrumenta/kubeval`
+
+# Section 17:
+## dry-run
+
+* `kubectl create deployment web --image=nginx -o yaml > .\section-16\web.yaml`
+* `kubectl apply -f .\section-16\web.yaml --dry-run --valiate=false -o yaml`
+* can see `replicas`
+```
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: web
+```
+* `--dry-run=server`
+* `kubectl apply -f .\section-16\web.yaml --dry-run=server --validate=false -o yaml`
+* this does everything except write to **etcd**
+* api strips out unknown bits
+```
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: web
+```
+
+## kubectl diff
+
+* `curl -O https://k8smastery.com/just-a-pod.yaml`
+* `kubectl apply -f just-a-pod.yaml`
+* edit `just-a-pod.yaml` to modify version of image0
+* `kubectl diff -f just-a-pod.yaml`
+```
+-  - image: nginx
++  - image: nginx:1.17
+```
+* `kubectl delete -f just-a-pod.yaml`
+
+# Section 18 - Rolling updates
+* creates multiple replica sets
+* each replica set has identical Pods
+* two paramaters determine pace of rollout: `mexUnavailable` and `maxSurge`
+* can be ablsolute or percent
+
+* `kubectl apply -f https://k8smastery.com/dockercoins.yaml`
+* `kubectl set image deploy worker worker=dockercoins/worker:v0.3`
+* `kubectl rollout status deploy worker`
+```
+Waiting for deployment "worker" rollout to finish: 5 out of 10 new replicas have been updated...
+```
+* `kubectl get pods`
+```
+worker-578fcd5889-zdds6      1/1     Running            3 (5h8m ago)    3d4h
+worker-8659b99d6-4hv4r       0/1     ImagePullBackOff   0               4m27s
+worker-8659b99d6-656qs       0/1     ImagePullBackOff   0               4m27s
+worker-8659b99d6-6ts9b       0/1     ImagePullBackOff   0               4m27s
+worker-8659b99d6-8rbc7       0/1     ImagePullBackOff   0               4m27s
+worker-8659b99d6-nkcx7       0/1     ImagePullBackOff   0               4m27s
+```
+   * MaxUnavailable=25%
+   * so rollout terminated 2 replicas out of 10
+   * MaxSurge=25%
+   * so addition to replacing 2 replicas, the rollout also starting 3 more
+
+## Recovering from failed deplpoyments
+* `kubectl describe deploy worker`
+```
+Replicas:               10 desired | 5 updated | 13 total | 8 available | 5 unavailable
+```
+* `kubectl rollout undo deploy worker`
+* `kubectl rollout status deploy worker`
+* **Note undo only flips to the previous state**
+
+# Rollout history and patching
+* `kubectl rollout history deployment worker`
+* we don't see all revisions (due to undo)
+## Annotations
+* `kubectl describe replicasets -l app=worker | grep -A3 Annotations`
+
+## Rollback
+* `kubectl rollout undo deployment worker --to-revision=1`
+
+## Creating a yaml patch
+If we need to change multiple things in the deployment
+* we could use `kubectl edit deployment worker`
+* but we cold also use `kubectl patch`
+```
+kubectl patch deployment worker -p "
+spec:
+   template:
+      spec:
+         containers:
+         - name: worker
+           image: dockercoins/worker:v0.1
+   strategy:
+      rollingUpdate:
+         maxUnavailable: 0
+         maxSurge: 1
+   minReadySeconds: 10
+"
+```
+# Section 20: Health Checks
+* Health checks are **per** container
+* they are probes apply to containers
+* take action
+* 3 optional probes:
+   * liveness - dead or alive. **should only focus on this container**
+   * readiness - ready to serve traffic
+   * startup - stills starting up
+* Different handlers: HTTP, TCP, programme execution
+
+## Liveness probe
+* if the liveness probe fails, the container is killed
+* what happens next depends on the `restartPolicy` 
+   * `Never`: the container is not restarted
+   * `OnFailure` or `Always`: the container is restarted
+
+## Readiness probe
+* multicontainer checks
+* ready to serve traffic
+* if it "unready" is might become "ready" again
+* To indicate temporary failure or unavailability
+   * application can only service N parallel connections
+   * runtime is busy doing garabage collection or initial data load
+
+## Startup probe
+* when container startup time can vary a lot
+* will enable other probes when this is good
+
+## Benefits of using probes 
+* rolling updates proceed when containers actually ready
+
+## Types
+* keep them simple
+* exec most expensive
+
+* HTTP 
+   * specicify URL andoptional headres
+   * any 200 and 399 indicates success
+* TCP Connection
+   * the probe succeeds if the TCP port is open
+*  Arbitary exec
+   * a command is executed in the container
+   * exit status of zero indicates success
+
+## Timing and thresholds
+* periodSeconds
+* timeoutSeconds
+* successThreshold
+* failureThreshold
+* initialDelaySeconds
+
+## Proper healthcheck usage
+* should probes check container dependencies
+* healthcheck for workers
+   * HTTP server is expensive
+   * app touches a file and we check the timestamp is in range
+   * check logs
+
+## Questions
+* do you want liveness, readiness or both (could use same with diff timing
+* do we have existing HTTP
+* do we need to add new endpoints
+* are our healtchecks likely to use resource and slow down the app?
+** do we need to depend on additional services (for readiness)
+
+# Section 21: updating apps with probes and testing
+* do we get temporary, recoverable glitches
+   * then we use readiness
+* do we get hard lock-ups requiring a restart?
+   * then use liveness
+* We don't know yet for Dockercoins
+* Let's pick liveness
+
+## Do we have HTTP endpoings
+* 3 web services (hasher, rng, webui)
+
+![endpoints](section-21/health.png)
+
+* update `rng-deployment.yaml`
+```
+    spec:
+      containers:
+      - image: dockercoins/rng:v0.1
+        name: rng
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 5
+```
+* `kubectl apply -f .`
+
+## Testing the liveness probe
+* `kubectl get pods -w`
+* `kubectl get events -w`
+* `kubectl attach --namespace=shpod -it shpod`
+   * `CLUSTER_IP=$(kubectl get svc rng -o go-template='{{.spec.clusterIP}}')`
+   * (get cluster ip)
+   `ab -c 10 -n 1000 http://$CLUSTER_IP/1
+## Better healthchecks
+* Make sure healthcheck doesn't trip when performance is degraded due to external pressure
+* using a readiness check would have fewer effects (but still imperfect)
+* a possible combination:
+   * readiness with a short timeout / low failure threshold
+   * liveness check with a longer timeout / higher failure threshold
+
+## Exec liveness check
+* liveness is enough
+* readiness is no use when there are not multiple containers
+* redis = `redis-cli ping`
+
+## Zombies
+* when using `exec probes` we should make sure we have a *zombie reaper*
+* we have the potential of creating zombies
+* we can add [tini](https://github.com/krallin/tini) tp our images <- recommended
+* or share the PID namespace between containers 
